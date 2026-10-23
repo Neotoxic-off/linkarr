@@ -1,0 +1,86 @@
+# The trio on one network: services reach each other by name (http://modularr:8080, http://visularr:8096, http://linkarr:8070).
+# modularr and visularr see the media at /media, so the paths linkarr asks visularr to refresh match (linkarr itself never
+# reads the media, so it has no media mount).
+# Ports: modularr and visularr are published on every interface for the LAN. Behind a reverse proxy, bind them to the host only
+# ("127.0.0.1:8080:8080", "127.0.0.1:8096:8096") so the proxy is the only way in.
+name: arr-trio
+
+x-media: &media
+  type: bind
+  source: ${MEDIA_DIR:-D:/Code/Github/modularr/media}
+  target: /media
+
+services:
+  modularr:
+    hostname: modularr
+    image: modularr:dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    environment:
+      - MODULARR_TMDB_API_KEY=${MODULARR_TMDB_API_KEY:-}
+      # modularr's API key; it has no setup and no users until linkarr provisions them.
+      - MODULARR_API_KEY=${MODULARR_API_KEY:?Set MODULARR_API_KEY in .env (see .env.example)}
+    volumes:
+      - modularr-config:/config
+      - *media
+
+  visularr:
+    # visularr shows its host name as the server name ("Sign in to …"); a container id otherwise.
+    hostname: visularr
+    image: visularr:dev
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    environment:
+      # visularr's API key; it completes its wizard on its own and linkarr creates its admin.
+      - VISULARR_API_KEY=${VISULARR_API_KEY:?Set VISULARR_API_KEY in .env (see .env.example)}
+    volumes:
+      - visularr-config:/config
+      - visularr-cache:/cache
+      # visularr only reads the library.
+      - <<: *media
+        read_only: true
+
+  linkarr:
+    hostname: linkarr
+    build: .
+    image: linkarr:dev
+    restart: unless-stopped
+    ports:
+      # This host only by default: until setup is done, whoever reaches linkarr first creates the admin account. To open it to
+      # the LAN, use "8070:8070" (and set LINKARR_SETUP_TOKEN in .env first), or put a reverse proxy in front.
+      - "127.0.0.1:8070:8070"
+    volumes:
+      - linkarr-config:/config
+    environment:
+      # modularr posts its events here from inside the network; browsers use the public URLs.
+      - Linkarr__InternalUrl=http://linkarr:8070
+      # The connections, read-only in linkarr's Settings.
+      - MODULARR_URL=http://modularr:8080
+      - MODULARR_API_KEY=${MODULARR_API_KEY:?Set MODULARR_API_KEY in .env (see .env.example)}
+      - MODULARR_PUBLIC_URL=${MODULARR_PUBLIC_URL:-http://localhost:8080}
+      - VISULARR_URL=http://visularr:8096
+      - VISULARR_API_KEY=${VISULARR_API_KEY:?Set VISULARR_API_KEY in .env (see .env.example)}
+      - VISULARR_PUBLIC_URL=${VISULARR_PUBLIC_URL:-http://localhost:8096}
+      - LINKARR_PUBLIC_URL=${LINKARR_PUBLIC_URL:-http://localhost:8070}
+      # Optional: first-run setup then asks for this token (an https LINKARR_PUBLIC_URL also makes the session cookie Secure).
+      - LINKARR_SETUP_TOKEN=${LINKARR_SETUP_TOKEN:-}
+      # Behind a reverse proxy: its address or network (e.g. 172.18.0.0/16), so linkarr trusts its X-Forwarded-* headers.
+      - TrustedProxies=${LINKARR_TRUSTED_PROXIES:-}
+    depends_on:
+      - modularr
+      - visularr
+
+# Fixed names: the same volumes as a plain `docker run` of each app, so switching to compose keeps their data.
+volumes:
+  modularr-config:
+    name: modularr-config
+  visularr-config:
+    name: visularr-config
+  visularr-cache:
+    name: visularr-cache
+  linkarr-config:
+    name: linkarr-config

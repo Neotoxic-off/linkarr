@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/out
+**/bin
+**/obj
+.git
+# Local secrets and dev state must never enter an image.
+**/.env
+**/.env.*
+**/*.env
+backend/src/Linkarr.Api/config
+backend/src/Linkarr.Api/wwwroot
+**/TestResults
+**/*.db

@@ -1,0 +1,29 @@
+# .NET
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esult*/
+*.user
+.vs/
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+
+# Build output and dev config (linkarr.db, key ring)
+backend/src/Linkarr.Api/wwwroot/
+backend/src/Linkarr.Api/config/
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+.env
+*.env
+
+# Claude Code
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
