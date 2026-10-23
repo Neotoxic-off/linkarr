@@ -31,8 +31,8 @@ public sealed partial class SyncWorker(IServiceScopeFactory scopes, SyncState st
                 nextUsers = DateTime.UtcNow + (await FailedAsync(s => s.UserSyncError, stoppingToken) ? RetryAfterError : UsersEvery);
             }
 
-            DateTime next = nextCatalog < nextUsers ? nextCatalog : nextUsers;
-            TimeSpan wait = (state.CatalogDue is DateTime due && due < next ? due : next) - DateTime.UtcNow;
+            DateTime next = new[] { nextCatalog, nextUsers, state.CatalogDue ?? DateTime.MaxValue, state.UsersDue ?? DateTime.MaxValue }.Min();
+            TimeSpan wait = next - DateTime.UtcNow;
             await state.Wake.WaitAsync(wait > TimeSpan.Zero ? wait : TimeSpan.Zero, stoppingToken);
         }
     }

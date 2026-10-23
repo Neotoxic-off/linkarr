@@ -7,7 +7,7 @@ namespace Linkarr.Tests;
 public sealed class RightsMappingTests
 {
     private static Account With(Rights rights, bool disabled = false) =>
-        new() { Username = "bob", PasswordHash = "x", Rights = rights, Disabled = disabled };
+        new() { Username = "bob", PasswordHash = "x", Role = new Role { Name = "test", Rights = rights }, Disabled = disabled };
 
     [Fact]
     public void AdminGetsEverythingInBothApps()
@@ -50,6 +50,52 @@ public sealed class RightsMappingTests
     public void NoWatchRightMeansNoVisularrAccount()
     {
         Assert.False(RightsMapping.HasVisularrAccount(With(new Rights(Watch: false))));
+    }
+
+    [Fact]
+    public void RoleLimitsBecomeJellyfinPolicy()
+    {
+        Account kid = With(new Rights(Request: false, MaxParentalRating: 10, BlockUnrated: true, CanDownload: false, RemoteAccess: false,
+            MaxActiveSessions: 2, Transcoding: false, BitrateLimit: 8_000_000));
+        JsonObject policy = RightsMapping.ApplyPolicy([], kid);
+
+        Assert.Equal(10, policy["MaxParentalRating"]!.GetValue<int>());
+        Assert.Contains("Movie", policy["BlockUnratedItems"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.False(policy["EnableContentDownloading"]!.GetValue<bool>());
+        Assert.False(policy["EnableSyncTranscoding"]!.GetValue<bool>());
+        Assert.False(policy["EnableRemoteAccess"]!.GetValue<bool>());
+        Assert.Equal(2, policy["MaxActiveSessions"]!.GetValue<int>());
+        Assert.False(policy["EnableVideoPlaybackTranscoding"]!.GetValue<bool>());
+        Assert.False(policy["EnableAudioPlaybackTranscoding"]!.GetValue<bool>());
+        Assert.False(policy["EnablePlaybackRemuxing"]!.GetValue<bool>());
+        Assert.Equal(8_000_000, policy["RemoteClientBitrateLimit"]!.GetValue<int>());
+
+        // No limit: Jellyfin's defaults.
+        JsonObject open = RightsMapping.ApplyPolicy([], With(new Rights()));
+        Assert.Null(open["MaxParentalRating"]);
+        Assert.Empty(open["BlockUnratedItems"]!.AsArray());
+        Assert.True(open["EnableContentDownloading"]!.GetValue<bool>());
+        Assert.Equal(0, open["RemoteClientBitrateLimit"]!.GetValue<int>());
+    }
+
+    // Groups add their libraries to the role's and nothing else; one group with all libraries gives all.
+    [Fact]
+    public void GroupsOnlyAddLibraries()
+    {
+        Account guest = With(new Rights(AllLibraries: false, Libraries: ["own"], CanDownload: false, Request: false));
+        guest.Groups.Add(new Group { Name = "family", Libraries = ["a", "b"] });
+        guest.Groups.Add(new Group { Name = "friends", Libraries = ["b", "c"] });
+
+        Rights rights = guest.Rights;
+        JsonObject policy = RightsMapping.ApplyPolicy([], guest);
+
+        Assert.Equal(["own", "a", "b", "c"], policy["EnabledFolders"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.False(policy["EnableAllFolders"]!.GetValue<bool>());
+        Assert.False(policy["IsAdministrator"]!.GetValue<bool>());
+        Assert.False(rights.CanDownload || rights.Request || rights.Admin);
+
+        guest.Groups.Add(new Group { Name = "everything", AllLibraries = true });
+        Assert.True(RightsMapping.ApplyPolicy([], guest)["EnableAllFolders"]!.GetValue<bool>());
     }
 
     // Jellyfin refuses to disable an administrator: a disabled account is never one.

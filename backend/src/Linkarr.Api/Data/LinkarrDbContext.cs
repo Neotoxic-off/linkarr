@@ -8,6 +8,8 @@ namespace Linkarr.Api.Data;
 public sealed class LinkarrDbContext(DbContextOptions<LinkarrDbContext> options) : DbContext(options)
 {
     public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<Group> Groups => Set<Group>();
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<AccountAvatar> Avatars => Set<AccountAvatar>();
     public DbSet<CatalogItem> Catalog => Set<CatalogItem>();
@@ -28,12 +30,37 @@ public sealed class LinkarrDbContext(DbContextOptions<LinkarrDbContext> options)
         modelBuilder.Entity<Account>(account =>
         {
             account.Ignore(a => a.Rights);
+            account.Ignore(a => a.IsAdmin);
+            account.HasOne(a => a.Role).WithMany().HasForeignKey(a => a.RoleId).OnDelete(DeleteBehavior.Restrict);
+            account.Navigation(a => a.Role).AutoInclude();
+            account.HasMany(a => a.Groups).WithMany(g => g.Members).UsingEntity(
+                "GroupMembers",
+                r => r.HasOne(typeof(Group)).WithMany().HasForeignKey("GroupId").OnDelete(DeleteBehavior.Cascade),
+                l => l.HasOne(typeof(Account)).WithMany().HasForeignKey("AccountId").OnDelete(DeleteBehavior.Cascade));
+            account.Navigation(a => a.Groups).AutoInclude();
             account.HasIndex(a => a.Username).IsUnique();
             account.Property(a => a.Username).UseCollation("NOCASE");
             account.HasIndex(a => a.ExternalId).IsUnique();
             // An app user belongs to one account at most (SQLite allows any number of NULLs).
             account.HasIndex(a => a.VisularrId).IsUnique();
             account.HasIndex(a => a.ModularrId).IsUnique();
+        });
+        modelBuilder.Entity<Role>(role =>
+        {
+            role.Ignore(r => r.Rights);
+            role.HasIndex(r => r.Name).IsUnique();
+            role.Property(r => r.Name).UseCollation("NOCASE");
+            role.HasData(
+                new Role { Id = Role.AdminId, Name = "Admin", BuiltIn = "admin", Admin = true, Watch = true, Request = true, ManageDownloads = true, ModularrAccess = true },
+                new Role { Id = Role.MemberId, Name = "Member", BuiltIn = "member", Watch = true, Request = true },
+                new Role { Id = Role.KidId, Name = "Kid", BuiltIn = "kid", Watch = true, MaxParentalRating = 10, BlockUnrated = true },
+                new Role { Id = Role.GuestId, Name = "Guest", BuiltIn = "guest", Watch = true, AllLibraries = false, CanDownload = false });
+        });
+        modelBuilder.Entity<Group>(group =>
+        {
+            group.HasIndex(g => g.Name).IsUnique();
+            group.Property(g => g.Name).UseCollation("NOCASE");
+            group.HasOne<Role>().WithMany().HasForeignKey(g => g.DefaultRoleId).OnDelete(DeleteBehavior.SetNull);
         });
         modelBuilder.Entity<Session>(session =>
         {

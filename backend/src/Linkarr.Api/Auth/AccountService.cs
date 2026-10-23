@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Linkarr.Api.Data;
+using Group = Linkarr.Api.Data.Group;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,7 +36,7 @@ public sealed partial class AccountService(LinkarrDbContext db)
         try
         {
             return await IsSetupRequiredAsync(ct)
-                ? await CreateAsync(username, displayName: null, password, new Rights(Admin: true, Watch: true, Request: true, ManageDownloads: true, ModularrAccess: true), ct)
+                ? await CreateAsync(username, displayName: null, password, Role.AdminId, groupIds: null, ct)
                 : null;
         }
         finally
@@ -45,16 +46,69 @@ public sealed partial class AccountService(LinkarrDbContext db)
     }
 
     // Saved before provisioning, which then records the remote ids and the sync status on it.
-    public async Task<Account> CreateAsync(string username, string? displayName, string password, Rights rights, CancellationToken ct)
+    // No role given: the default role of the first group that has one, else Member.
+    public async Task<Account> CreateAsync(string username, string? displayName, string password, int? roleId, IReadOnlyCollection<int>? groupIds, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(rights);
         await ValidateUsernameAsync(username, ct);
         ValidatePassword(password);
-        Account account = new() { Username = username, DisplayName = CleanDisplayName(displayName), PasswordHash = "", Created = DateTime.UtcNow, Rights = rights };
+        List<Group> groups = await GroupsAsync(groupIds, ct);
+        Role role = await RoleAsync(roleId ?? groups.Select(g => g.DefaultRoleId).FirstOrDefault(id => id is not null) ?? Role.MemberId, ct);
+        if (roleId is null && role.Admin)
+        {
+            // A group never makes an admin, even if its default role was turned into one since.
+            role = await RoleAsync(Role.MemberId, ct);
+        }
+
+        Account account = new() { Username = username, DisplayName = CleanDisplayName(displayName), PasswordHash = "", Created = DateTime.UtcNow, Role = role, Groups = groups };
         account.PasswordHash = Hasher.HashPassword(account, password);
         db.Accounts.Add(account);
         await db.SaveChangesAsync(ct);
         return account;
+    }
+
+    public async Task<Role> RoleAsync(int id, CancellationToken ct) =>
+        await db.Roles.FirstOrDefaultAsync(r => r.Id == id, ct) ?? throw new ArgumentException($"Role {id} does not exist.", nameof(id));
+
+    // The first role (built-ins first) with exactly these permissions, or a new "Custom: <username>" one: an adopted user keeps
+    // what it had in its app without any existing role changing.
+    public async Task<Role> RoleForAsync(Rights rights, string username, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(rights);
+        List<Role> roles = await db.Roles.OrderBy(r => r.Id).ToListAsync(ct);
+        if (roles.FirstOrDefault(r => SamePermissions(r.Rights, rights)) is Role existing)
+        {
+            return existing;
+        }
+
+        string name = $"Custom: {username}";
+        for (int n = 2; roles.Any(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)); n++)
+        {
+            name = FormattableString.Invariant($"Custom: {username} ({n})");
+        }
+
+        Role role = new() { Name = name, Rights = rights };
+        db.Roles.Add(role);
+        return role;
+    }
+
+    public static bool SamePermissions(Rights a, Rights b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        return a with { Libraries = null } == b with { Libraries = null }
+            && Role.CleanLibraries(a.Libraries).Order(StringComparer.Ordinal).SequenceEqual(Role.CleanLibraries(b.Libraries).Order(StringComparer.Ordinal));
+    }
+
+    // Every id must exist: a typo never silently drops a group (and its libraries).
+    public async Task<List<Group>> GroupsAsync(IReadOnlyCollection<int>? ids, CancellationToken ct)
+    {
+        List<Group> groups = ids is null or { Count: 0 } ? [] : await db.Groups.Where(g => ids.Contains(g.Id)).ToListAsync(ct);
+        if (ids is not null && groups.Count != ids.Distinct().Count())
+        {
+            throw new ArgumentException("A group does not exist.", nameof(ids));
+        }
+
+        return groups;
     }
 
     // Null for an unknown username, a wrong password or a disabled account.
@@ -109,7 +163,7 @@ public sealed partial class AccountService(LinkarrDbContext db)
     public async Task EnsureNotLastAdminAsync(Account account, string action, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(account);
-        if (account.IsAdmin && !account.Disabled && await db.Accounts.CountAsync(a => a.IsAdmin && !a.Disabled, ct) == 1)
+        if (account.IsAdmin && !account.Disabled && await db.Accounts.CountAsync(a => a.Role.Admin && !a.Disabled, ct) == 1)
         {
             throw new ArgumentException($"The last admin cannot be {action}.", nameof(account));
         }

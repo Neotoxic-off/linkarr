@@ -10,9 +10,11 @@ namespace Linkarr.Api.Users;
 // Admin only: linkarr's users are the source of truth, every change is provisioned to visularr and modularr.
 public static class UserEndpoints
 {
-    public sealed record CreateUserRequest(string Username, string? DisplayName, string Password, Rights? Rights);
+    // RoleId null: the default role of the first of its groups that has one, else Member.
+    public sealed record CreateUserRequest(string Username, string? DisplayName, string Password, int? RoleId = null, IReadOnlyList<int>? GroupIds = null);
 
-    public sealed record UpdateUserRequest(string? DisplayName, Rights? Rights, bool? Disabled, string? Username = null);
+    // GroupIds replaces the user's groups; null keeps them.
+    public sealed record UpdateUserRequest(string? DisplayName, int? RoleId, bool? Disabled, string? Username = null, IReadOnlyList<int>? GroupIds = null);
 
     public sealed record PasswordRequest(string Password);
 
@@ -28,7 +30,7 @@ public static class UserEndpoints
 
         users.MapPost("/", async (CreateUserRequest request, AccountService accounts, UserSync sync, OwnerProvisioning retry, CancellationToken ct) =>
         {
-            Account account = await accounts.CreateAsync(request.Username, request.DisplayName, request.Password, request.Rights ?? new Rights(), ct);
+            Account account = await accounts.CreateAsync(request.Username, request.DisplayName, request.Password, request.RoleId, request.GroupIds, ct);
             await sync.ProvisionAsync(account, request.Password, ct);
             RetryIfMissed(account, request.Password, retry);
             return UserDtos.Full(account);
@@ -37,7 +39,8 @@ public static class UserEndpoints
         users.MapPatch("/{id:int}", async (int id, UpdateUserRequest request, HttpContext context, AccountService accounts, UserSync sync, CancellationToken ct) =>
         {
             Account account = await accounts.GetAsync(id, ct);
-            bool demoting = request.Rights is { Admin: false } && account.IsAdmin;
+            Role? role = request.RoleId is int roleId ? await accounts.RoleAsync(roleId, ct) : null;
+            bool demoting = role is { Admin: false } && account.IsAdmin;
             bool disabling = request.Disabled == true && !account.Disabled;
             if (demoting || disabling)
             {
@@ -54,9 +57,16 @@ public static class UserEndpoints
                 account.DisplayName = AccountService.CleanDisplayName(request.DisplayName);
             }
 
-            if (request.Rights is Rights rights)
+            if (role is not null)
             {
-                account.Rights = rights;
+                account.Role = role;
+            }
+
+            if (request.GroupIds is not null)
+            {
+                List<Group> groups = await accounts.GroupsAsync(request.GroupIds, ct);
+                account.Groups.Clear();
+                account.Groups.AddRange(groups);
             }
 
             if (request.Disabled is bool disabled)

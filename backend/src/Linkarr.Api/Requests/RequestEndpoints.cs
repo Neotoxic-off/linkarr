@@ -70,7 +70,7 @@ public static class RequestEndpoints
                     return Results.Conflict(new { error = $"{denied.Title} was denied; ask an admin to re-open it." });
                 }
 
-                int perDay = (await connections.SettingsAsync(ct)).RequestsPerDay;
+                int perDay = account.Role.RequestsPerDay ?? (await connections.SettingsAsync(ct)).RequestsPerDay;
                 DateTime since = DateTime.UtcNow.AddDays(-1);
                 if (perDay > 0 && await db.Requests.CountAsync(r => r.AccountId == account.Id && r.Created > since, ct) >= perDay)
                 {
@@ -172,6 +172,6 @@ public static class RequestEndpoints
     {
         int id = AuthEndpoints.UserId(context.User);
         Account account = await db.Accounts.FirstOrDefaultAsync(a => a.Id == id, ct) ?? throw new KeyNotFoundException("Unknown user.");
-        return account.IsAdmin || account.Request ? account : throw new UnauthorizedAccessException("You may not request titles.");
+        return account.IsAdmin || account.Role.Request ? account : throw new UnauthorizedAccessException("You may not request titles.");
     }
 }

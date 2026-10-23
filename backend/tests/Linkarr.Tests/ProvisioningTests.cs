@@ -26,7 +26,7 @@ public sealed class ProvisioningTests
         _ => (HttpStatusCode.NotFound, ""),
     });
 
-    private static Account Bob(Rights rights) => new() { Username = "bob", PasswordHash = "hash", Rights = rights };
+    private static Account Bob(Rights rights) => new() { Username = "bob", PasswordHash = "hash", Role = new Role { Name = "test", Rights = rights } };
 
     [Fact]
     public async Task NewUserIsCreatedInBothAppsWithItsPasswordAndRights()
@@ -215,7 +215,7 @@ public sealed class ProvisioningTests
         Assert.Null(bob.ModularrId);
         Assert.Equal(SyncStatus.OutOfSync, bob.SyncStatus);
 
-        bob.ModularrAccess = false;
+        bob.Role.ModularrAccess = false;
         await UserProvisioner.SyncAsync(bob, null, modularr.Modularr(), null, CancellationToken.None);
 
         Assert.Contains(modularr.Requests, r => r.Method == "DELETE" && r.Path == $"/api/provision/users/{bob.ExternalId}");

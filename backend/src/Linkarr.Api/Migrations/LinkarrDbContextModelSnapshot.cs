@@ -17,13 +17,25 @@ namespace Linkarr.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("GroupMembers", b =>
+                {
+                    b.Property<int>("AccountId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("GroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AccountId", "GroupId");
+
+                    b.HasIndex("GroupId");
+
+                    b.ToTable("GroupMembers");
+                });
+
             modelBuilder.Entity("Linkarr.Api.Data.Account", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("AllLibraries")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("AvatarUpdated")
@@ -42,24 +54,11 @@ namespace Linkarr.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("IsAdmin")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime?>("LastSignIn")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("LastSynced")
                         .HasColumnType("TEXT");
-
-                    b.PrimitiveCollection<string>("Libraries")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("ManageDownloads")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ModularrAccess")
-                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("ModularrId")
                         .HasColumnType("INTEGER");
@@ -71,7 +70,7 @@ namespace Linkarr.Api.Migrations
                     b.Property<bool>("PasswordPending")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("Request")
+                    b.Property<int>("RoleId")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("SyncError")
@@ -89,9 +88,6 @@ namespace Linkarr.Api.Migrations
                     b.Property<string>("VisularrId")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("Watch")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ExternalId")
@@ -99,6 +95,8 @@ namespace Linkarr.Api.Migrations
 
                     b.HasIndex("ModularrId")
                         .IsUnique();
+
+                    b.HasIndex("RoleId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -273,6 +271,184 @@ namespace Linkarr.Api.Migrations
                     b.ToTable("Snapshots");
                 });
 
+            modelBuilder.Entity("Linkarr.Api.Data.Group", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllLibraries")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("DefaultRoleId")
+                        .HasColumnType("INTEGER");
+
+                    b.PrimitiveCollection<string>("Libraries")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DefaultRoleId");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Groups");
+                });
+
+            modelBuilder.Entity("Linkarr.Api.Data.Role", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Admin")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllLibraries")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BitrateLimit")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("BlockUnrated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BuiltIn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("CanDownload")
+                        .HasColumnType("INTEGER");
+
+                    b.PrimitiveCollection<string>("Libraries")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ManageDownloads")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MaxActiveSessions")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MaxParentalRating")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ModularrAccess")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<bool>("RemoteAccess")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Request")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("RequestsPerDay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Transcoding")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Watch")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Roles");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Admin = true,
+                            AllLibraries = true,
+                            BitrateLimit = 0,
+                            BlockUnrated = false,
+                            BuiltIn = "admin",
+                            CanDownload = true,
+                            Libraries = "[]",
+                            ManageDownloads = true,
+                            MaxActiveSessions = 0,
+                            ModularrAccess = true,
+                            Name = "Admin",
+                            RemoteAccess = true,
+                            Request = true,
+                            Transcoding = true,
+                            Watch = true
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Admin = false,
+                            AllLibraries = true,
+                            BitrateLimit = 0,
+                            BlockUnrated = false,
+                            BuiltIn = "member",
+                            CanDownload = true,
+                            Libraries = "[]",
+                            ManageDownloads = false,
+                            MaxActiveSessions = 0,
+                            ModularrAccess = false,
+                            Name = "Member",
+                            RemoteAccess = true,
+                            Request = true,
+                            Transcoding = true,
+                            Watch = true
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Admin = false,
+                            AllLibraries = true,
+                            BitrateLimit = 0,
+                            BlockUnrated = true,
+                            BuiltIn = "kid",
+                            CanDownload = true,
+                            Libraries = "[]",
+                            ManageDownloads = false,
+                            MaxActiveSessions = 0,
+                            MaxParentalRating = 10,
+                            ModularrAccess = false,
+                            Name = "Kid",
+                            RemoteAccess = true,
+                            Request = false,
+                            Transcoding = true,
+                            Watch = true
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Admin = false,
+                            AllLibraries = false,
+                            BitrateLimit = 0,
+                            BlockUnrated = false,
+                            BuiltIn = "guest",
+                            CanDownload = false,
+                            Libraries = "[]",
+                            ManageDownloads = false,
+                            MaxActiveSessions = 0,
+                            ModularrAccess = false,
+                            Name = "Guest",
+                            RemoteAccess = true,
+                            Request = false,
+                            Transcoding = true,
+                            Watch = true
+                        });
+                });
+
             modelBuilder.Entity("Linkarr.Api.Data.Session", b =>
                 {
                     b.Property<string>("Id")
@@ -353,6 +529,32 @@ namespace Linkarr.Api.Migrations
                     b.ToTable("Requests");
                 });
 
+            modelBuilder.Entity("GroupMembers", b =>
+                {
+                    b.HasOne("Linkarr.Api.Data.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Linkarr.Api.Data.Group", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Linkarr.Api.Data.Account", b =>
+                {
+                    b.HasOne("Linkarr.Api.Data.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
             modelBuilder.Entity("Linkarr.Api.Data.AccountAvatar", b =>
                 {
                     b.HasOne("Linkarr.Api.Data.Account", null)
@@ -360,6 +562,14 @@ namespace Linkarr.Api.Migrations
                         .HasForeignKey("Linkarr.Api.Data.AccountAvatar", "AccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Linkarr.Api.Data.Group", b =>
+                {
+                    b.HasOne("Linkarr.Api.Data.Role", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultRoleId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Linkarr.Api.Data.Session", b =>

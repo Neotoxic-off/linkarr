@@ -154,19 +154,18 @@ public sealed class UserSync(LinkarrDbContext db, Connections connections, Accou
 
         if (account is null)
         {
-            Rights rights = app == Visularr
-                ? new Rights(Admin: user.Admin, Watch: true)
-                : new Rights(Watch: false, ManageDownloads: user.Admin, ModularrAccess: true);
-            account = await accounts.CreateAsync(user.Name, displayName: null, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), rights, ct);
+            Role role = app == Visularr
+                ? await accounts.RoleAsync(user.Admin ? Role.AdminId : Role.MemberId, ct)
+                : await accounts.RoleForAsync(new Rights(Watch: false, ManageDownloads: user.Admin, ModularrAccess: true), user.Name, ct);
+            await db.SaveChangesAsync(ct);
+            account = await accounts.CreateAsync(user.Name, displayName: null, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), role.Id, groupIds: null, ct);
             account.PasswordPending = true;
         }
-        else if (app == Visularr)
+        else if (app == Visularr ? !account.Role.Watch : !account.Role.ModularrAccess)
         {
-            account.Watch = true;
-        }
-        else
-        {
-            account.ModularrAccess = true;
+            // The account gains access to that app through a role with it (an existing one with the same permissions, or a custom one).
+            Rights current = account.Role.Rights;
+            account.Role = await accounts.RoleForAsync(app == Visularr ? current with { Watch = true } : current with { ModularrAccess = true }, account.Username, ct);
         }
 
         // Linked by the adopted user's id (visularr) or by modularr's explicit adopt flag, never by provisioning matching a name.

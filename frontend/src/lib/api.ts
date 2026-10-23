@@ -8,6 +8,45 @@ export interface Rights {
   request: boolean;
   manageDownloads: boolean;
   modularrAccess: boolean;
+  // null: the global limit from Settings.
+  requestsPerDay: number | null;
+  // A Jellyfin rating score (PG is 10); null for none.
+  maxParentalRating: number | null;
+  blockUnrated: boolean;
+  canDownload: boolean;
+  remoteAccess: boolean;
+  // 0: no limit.
+  maxActiveSessions: number;
+  transcoding: boolean;
+  // Bits per second, 0 for no limit.
+  bitrateLimit: number;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  // "admin" | "member" | "kid" | "guest" for the built-in ones, which cannot be deleted (and Admin not changed).
+  builtIn: string | null;
+  rights: Rights;
+  members: number[];
+}
+
+// A group gives its members libraries, nothing else; defaultRoleId is the role of a new user created in it.
+export interface Group {
+  id: number;
+  name: string;
+  allLibraries: boolean;
+  libraries: string[];
+  defaultRoleId: number | null;
+  members: number[];
+}
+
+export interface GroupInput {
+  name: string;
+  allLibraries: boolean;
+  libraries: string[];
+  defaultRoleId: number | null;
+  members: number[];
 }
 
 export interface Me {
@@ -16,6 +55,7 @@ export interface Me {
   displayName: string | null;
   admin: boolean;
   rights: Rights;
+  role: string;
   // An app missed the last password: entering it again (Account page) sends it.
   passwordPending: boolean;
   created: string;
@@ -36,7 +76,10 @@ export interface ManagedUser {
   username: string;
   displayName: string | null;
   disabled: boolean;
+  // Effective: the role's, with the libraries of the groups.
   rights: Rights;
+  role: { id: number; name: string };
+  groups: { id: number; name: string }[];
   created: string;
   avatar: string | null;
   visularrId: string | null;
@@ -266,8 +309,8 @@ export const api = {
   endSession: (id: string): Promise<void> => send("POST", "/auth/sessions/signout", { id }),
 
   users: (): Promise<ManagedUser[]> => request("/users"),
-  createUser: (input: { username: string; displayName: string | null; password: string; rights: Rights }): Promise<ManagedUser> => send("POST", "/users", input),
-  updateUser: (id: number, input: { username?: string; displayName?: string | null; rights?: Rights; disabled?: boolean }): Promise<ManagedUser> => send("PATCH", `/users/${id}`, input),
+  createUser: (input: { username: string; displayName: string | null; password: string; roleId: number | null; groupIds: number[] }): Promise<ManagedUser> => send("POST", "/users", input),
+  updateUser: (id: number, input: { username?: string; displayName?: string | null; roleId?: number; groupIds?: number[]; disabled?: boolean }): Promise<ManagedUser> => send("PATCH", `/users/${id}`, input),
   signOutUser: (id: number): Promise<void> => send("POST", `/users/${id}/signout`),
   resetPassword: (id: number, password: string): Promise<ManagedUser> => send("POST", `/users/${id}/password`, { password }),
   syncUser: (id: number, password: string | null): Promise<ManagedUser> => send("POST", `/users/${id}/sync`, { password }),
@@ -279,6 +322,14 @@ export const api = {
   adopt: (app: AppName, remoteId: string): Promise<ManagedUser> => send("POST", "/users/unmanaged/adopt", { app, remoteId }),
   deleteUnmanaged: (app: AppName, remoteId: string): Promise<void> => send("POST", "/users/unmanaged/delete", { app, remoteId }),
   libraries: (): Promise<Library[]> => request("/libraries"),
+  roles: (): Promise<Role[]> => request("/roles"),
+  createRole: (name: string, rights: Rights): Promise<Role> => send("POST", "/roles", { name, rights }),
+  updateRole: (id: number, name: string, rights: Rights): Promise<Role> => send("PUT", `/roles/${id}`, { name, rights }),
+  deleteRole: (id: number): Promise<void> => send("DELETE", `/roles/${id}`),
+  groups: (): Promise<Group[]> => request("/groups"),
+  createGroup: (input: GroupInput): Promise<Group> => send("POST", "/groups", input),
+  updateGroup: (id: number, input: GroupInput): Promise<Group> => send("PUT", `/groups/${id}`, input),
+  deleteGroup: (id: number): Promise<void> => send("DELETE", `/groups/${id}`),
 
   catalog: (filter: { state?: CatalogState; kind?: TitleKind; search?: string }): Promise<CatalogItem[]> => request(`/catalog?${query(filter)}`),
   syncCatalog: (): Promise<{ lastCatalogSync: string | null; catalogSyncError: string | null }> => send("POST", "/catalog/sync"),

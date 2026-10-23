@@ -40,7 +40,25 @@ public sealed class SyncState
         RequestCatalog(TimeSpan.Zero);
     }
 
-    public bool TakeUsersRequest() => Interlocked.Exchange(ref usersRequested, 0) == 1;
+    // A role or group edit re-provisions its users: a run of edits makes one reconcile, this long after the last one.
+    public static readonly TimeSpan RightsDebounce = TimeSpan.FromSeconds(5);
+
+    private long usersDue = long.MaxValue;
+
+    public DateTime? UsersDue => Interlocked.Read(ref usersDue) is long due && due != long.MaxValue ? new DateTime(due, DateTimeKind.Utc) : null;
+
+    public void RequestUsers(TimeSpan debounce)
+    {
+        Interlocked.Exchange(ref usersDue, (DateTime.UtcNow + debounce).Ticks);
+        WakeUp();
+    }
+
+    public bool TakeUsersRequest()
+    {
+        long due = Interlocked.Read(ref usersDue);
+        bool debounced = due <= DateTime.UtcNow.Ticks && Interlocked.CompareExchange(ref usersDue, long.MaxValue, due) == due;
+        return (Interlocked.Exchange(ref usersRequested, 0) == 1) | debounced;
+    }
 
     private void WakeUp()
     {

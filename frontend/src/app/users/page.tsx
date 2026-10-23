@@ -1,15 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useSession } from "@/components/AuthGate";
 import { SessionRow } from "@/components/Overview";
 import { useToast } from "@/components/Toasts";
-import { Alert, Avatar, Badge, Button, Checkbox, Confirm, Empty, Field, IconButton, Input, Menu, MenuItem, Modal, PageHeader, Section, Skeleton, Switch, useAction, WellList } from "@/components/ui";
+import { Alert, Avatar, Badge, Button, Checkbox, Confirm, Empty, Field, IconButton, Input, Menu, MenuItem, Modal, PageHeader, Section, Select, Skeleton, useAction, WellList } from "@/components/ui";
 import { ago, api, displayName, errorMessage, when } from "@/lib/api";
-import type { Library, ManagedUser, Rights, SessionInfo, UnmanagedUser } from "@/lib/api";
-
-const defaultRights: Rights = { admin: false, watch: true, allLibraries: true, libraries: [], request: true, manageDownloads: false, modularrAccess: false };
+import type { Group, ManagedUser, Role, SessionInfo, UnmanagedUser } from "@/lib/api";
 
 type Dialog =
   | { type: "create" }
@@ -23,7 +22,10 @@ export default function UsersPage(): ReactNode {
   const toast = useToast();
   const [users, setUsers] = useState<ManagedUser[] | null>(null);
   const [unmanaged, setUnmanaged] = useState<UnmanagedUser[]>([]);
-  const [libraries, setLibraries] = useState<Library[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [roleFilter, setRoleFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [adopting, setAdopting] = useState<string | null>(null);
@@ -36,9 +38,11 @@ export default function UsersPage(): ReactNode {
 
   useEffect(() => {
     load();
-    api.libraries().then(setLibraries).catch(() => undefined);
+    api.roles().then(setRoles).catch(() => undefined);
+    api.groups().then(setGroups).catch(() => undefined);
   }, [load]);
 
+  const shown = users?.filter((u) => (!roleFilter || String(u.role.id) === roleFilter) && (!groupFilter || u.groups.some((g) => String(g.id) === groupFilter))) ?? null;
   const replace = (user: ManagedUser): void => setUsers((list) => list?.map((u) => (u.id === user.id ? user : u)) ?? [user]);
   const done = (user: { id: number; username: string }, message: string): void => toast({ key: `user-${user.id}`, icon: "check", tone: "ok", title: user.username, message });
   const failed = (user: ManagedUser, e: unknown): void => toast({ key: `user-${user.id}`, icon: "alert", tone: "bad", title: user.username, message: errorMessage(e) });
@@ -104,8 +108,23 @@ export default function UsersPage(): ReactNode {
       {!users && !error && <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-20" />)}</div>}
       {users?.length === 0 && <Empty icon="users" title="No users" />}
       {users && users.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Select aria-label="Filter by role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="w-48">
+            <option value="">Every role</option>
+            {roles.map((r) => <option key={r.id} value={String(r.id)}>{r.name}</option>)}
+          </Select>
+          {groups.length > 0 && (
+            <Select aria-label="Filter by group" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className="w-48">
+              <option value="">Every group</option>
+              {groups.map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+            </Select>
+          )}
+        </div>
+      )}
+      {users && users.length > 0 && shown?.length === 0 && <Empty icon="users" title="Nobody matches these filters" />}
+      {shown && shown.length > 0 && (
         <WellList label="Users">
-          {users.map((user) => (
+          {shown.map((user) => (
             <li key={user.id} className="flex items-start gap-3 p-3.5">
               <Avatar user={user} className="size-10 text-body" />
               <div className="min-w-0 flex-1">
@@ -115,8 +134,10 @@ export default function UsersPage(): ReactNode {
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {user.disabled && <Badge tone="bad">Disabled</Badge>}
                   {user.syncStatus === "OutOfSync" && <Badge tone="warn">Out of sync</Badge>}
+                  {user.syncStatus === "Pending" && <Badge tone="seek">Syncing soon</Badge>}
                   {user.passwordPending && <Badge tone="warn">Password needed</Badge>}
-                  {user.rights.admin && <Badge>Admin</Badge>}
+                  <Badge tone={user.rights.admin ? "live" : "neutral"}>{user.role.name}</Badge>
+                  {user.groups.map((g) => <Badge key={g.id} className="ring-1 ring-hair">{g.name}</Badge>)}
                   {user.visularrId && <Badge>visularr</Badge>}
                   {user.modularrId != null && <Badge>modularr{user.rights.manageDownloads || user.rights.admin ? " admin" : ""}</Badge>}
                 </div>
@@ -127,7 +148,7 @@ export default function UsersPage(): ReactNode {
                 </p>
               </div>
               <Menu label={`Actions for ${user.username}`}>
-                <MenuItem icon="sliders" onClick={() => setDialog({ type: "edit", user })}>Edit rights</MenuItem>
+                <MenuItem icon="sliders" onClick={() => setDialog({ type: "edit", user })}>Edit</MenuItem>
                 <MenuItem icon="key" onClick={() => setDialog({ type: "password", user })}>Reset password</MenuItem>
                 {user.passwordPending && <MenuItem icon="refresh" onClick={() => setDialog({ type: "resend", user })}>Send password again</MenuItem>}
                 <MenuItem icon="list" onClick={() => setDialog({ type: "sessions", user })}>Sessions</MenuItem>
@@ -165,10 +186,10 @@ export default function UsersPage(): ReactNode {
       )}
 
       {dialog?.type === "create" && (
-        <UserDialog libraries={libraries} onClose={close}
+        <UserDialog roles={roles} groups={groups} onClose={close}
           onSaved={(u) => { setUsers((l) => [...(l ?? []), u].sort((a, b) => a.username.localeCompare(b.username))); close(); done(u, syncNote(u, "Created")); }} />
       )}
-      {dialog?.type === "edit" && <UserDialog user={dialog.user} libraries={libraries} onClose={close} onSaved={(u) => { replace(u); close(); done(u, syncNote(u, "Saved")); }} />}
+      {dialog?.type === "edit" && <UserDialog user={dialog.user} roles={roles} groups={groups} onClose={close} onSaved={(u) => { replace(u); close(); done(u, syncNote(u, "Saved")); }} />}
       {(dialog?.type === "password" || dialog?.type === "resend") && (
         <PasswordDialog user={dialog.user} resend={dialog.type === "resend"} onClose={close}
           onSaved={(u) => { replace(u); close(); done(u, u.passwordPending ? "Saved in linkarr; an app is unreachable, send it again later." : "Password set in linkarr and both apps."); }} />
@@ -242,45 +263,24 @@ function SessionsDialog({ user, onClose }: { user: ManagedUser; onClose: () => v
   );
 }
 
-function RightsEditor({ rights, onChange, libraries, self }: { rights: Rights; onChange: (rights: Rights) => void; libraries: Library[]; self: boolean }): ReactNode {
-  const set = (patch: Partial<Rights>): void => onChange({ ...rights, ...patch });
-  return (
-    <div className="space-y-1">
-      <Switch label="Admin" description="Everything, in linkarr and both apps." checked={rights.admin} disabled={self} onChange={(admin) => set({ admin })} />
-      <Switch label="visularr" description="Has a visularr account and can play." checked={rights.watch || rights.admin} disabled={rights.admin} onChange={(watch) => set({ watch })} />
-      <Switch label="Request titles" description="Can search and request through linkarr." checked={rights.request || rights.admin} disabled={rights.admin} onChange={(request) => set({ request })} />
-      <Switch label="modularr" description="Has a modularr account and can sign in to it." checked={rights.modularrAccess || rights.admin} disabled={rights.admin} onChange={(modularrAccess) => set({ modularrAccess })} />
-      <Switch label="Manage downloads" description="modularr admin instead of member." checked={rights.manageDownloads || rights.admin}
-        disabled={rights.admin || !rights.modularrAccess} onChange={(manageDownloads) => set({ manageDownloads })} />
-      {!rights.admin && rights.watch && (
-        <div className="well mt-2 rounded-card p-3.5">
-          <Switch label="All libraries" checked={rights.allLibraries} onChange={(allLibraries) => set({ allLibraries })} />
-          {!rights.allLibraries && (libraries.length === 0
-            ? <p className="text-meta text-ink-3">Connect visularr in Settings to pick libraries.</p>
-            : libraries.map((l) => (
-              <Checkbox key={l.itemId} label={l.name} checked={rights.libraries.includes(l.itemId)}
-                onChange={(on) => set({ libraries: on ? [...rights.libraries, l.itemId] : rights.libraries.filter((id) => id !== l.itemId) })} />
-            )))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UserDialog({ user, libraries, onClose, onSaved }: { user?: ManagedUser; libraries: Library[]; onClose: () => void; onSaved: (user: ManagedUser) => void }): ReactNode {
+// A user has one role (what it may do) and any number of groups (which libraries it sees on top of the role's).
+function UserDialog({ user, roles, groups, onClose, onSaved }: { user?: ManagedUser; roles: Role[]; groups: Group[]; onClose: () => void; onSaved: (user: ManagedUser) => void }): ReactNode {
   const { user: me } = useSession();
   const [username, setUsername] = useState(user?.username ?? "");
   const [name, setName] = useState(user?.displayName ?? "");
   const [password, setPassword] = useState("");
-  const [rights, setRights] = useState<Rights>(user?.rights ?? defaultRights);
+  // "" on a new user: the default role of its first group that has one, else Member.
+  const [roleId, setRoleId] = useState(user ? String(user.role.id) : "");
+  const [groupIds, setGroupIds] = useState<number[]>(user?.groups.map((g) => g.id) ?? []);
+  const self = user?.id === me.id;
   const { busy, error, run } = useAction();
 
   function submit(event: FormEvent): void {
     event.preventDefault();
     void run(async () => {
       const saved = user
-        ? await api.updateUser(user.id, { username: username === user.username ? undefined : username, displayName: name, rights })
-        : await api.createUser({ username, displayName: name || null, password, rights });
+        ? await api.updateUser(user.id, { username: username === user.username ? undefined : username, displayName: name, roleId: Number(roleId), groupIds })
+        : await api.createUser({ username, displayName: name || null, password, roleId: roleId ? Number(roleId) : null, groupIds });
       onSaved(saved);
     });
   }
@@ -298,7 +298,21 @@ function UserDialog({ user, libraries, onClose, onSaved }: { user?: ManagedUser;
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required minLength={8} />
           </Field>
         )}
-        <RightsEditor rights={rights} onChange={setRights} libraries={libraries} self={user?.id === me.id} />
+        <Field label="Role" hint={self ? "You cannot change your own role." : <>What the user may do in each app. <Link href="/roles/" className="underline">Manage roles</Link></>}>
+          <Select aria-label="Role" value={roleId} onChange={(e) => setRoleId(e.target.value)} disabled={self}>
+            {!user && <option value="">From its group, else Member</option>}
+            {roles.map((r) => <option key={r.id} value={String(r.id)}>{r.name}</option>)}
+          </Select>
+        </Field>
+        <div role="group" aria-label="Groups" className="space-y-1">
+          <span className="block text-body font-medium">Groups</span>
+          {groups.length === 0
+            ? <p className="text-meta text-ink-3">No groups yet. <Link href="/groups/" className="underline">Create one</Link> to share libraries.</p>
+            : groups.map((g) => (
+              <Checkbox key={g.id} label={g.name} description={g.allLibraries ? "Every library" : `${g.libraries.length} ${g.libraries.length === 1 ? "library" : "libraries"}`}
+                checked={groupIds.includes(g.id)} onChange={(on) => setGroupIds((ids) => (on ? [...ids, g.id] : ids.filter((id) => id !== g.id)))} />
+            ))}
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={busy}>{user ? "Save" : "Create"}</Button>

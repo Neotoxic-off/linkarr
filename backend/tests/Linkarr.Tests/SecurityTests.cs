@@ -212,8 +212,10 @@ public sealed class SecurityTests : IDisposable
         WebApplicationFactory<Program> app = WithApps();
         using HttpClient admin = app.CreateClient();
         await SetupAsync(admin);
+        using HttpResponseMessage role = await admin.PostAsJsonAsync("/api/roles", new { name = "Requester", rights = new { watch = false, request = true } }, Ct);
+        int roleId = (await role.Content.ReadFromJsonAsync<JsonNode>(Ct))!["id"]!.GetValue<int>();
         using HttpResponseMessage created = await admin.PostAsJsonAsync("/api/users",
-            new { username = "member", password = "password123", rights = new { watch = false, request = true } }, Ct);
+            new { username = "member", password = "password123", roleId }, Ct);
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
         await using (AsyncServiceScope scope = app.Services.CreateAsyncScope())
         {

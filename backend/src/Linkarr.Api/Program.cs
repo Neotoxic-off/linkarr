@@ -91,7 +91,7 @@ app.UseRateLimiter();
 
 // The UI files stay public; the API needs a signed-in user unless an endpoint says otherwise, and an admin to change anything.
 app.MapGroup("/api").RequireAuthorization().RequireAdminForWrites()
-    .MapAuthApi().MapUserApi().MapCatalogApi().MapRequestApi().MapAppApi().MapStatsApi();
+    .MapAuthApi().MapUserApi().MapRoleApi().MapCatalogApi().MapRequestApi().MapAppApi().MapStatsApi();
 app.MapGoLinks();
 
 // Unknown /api routes must 404, not fall through to the SPA.

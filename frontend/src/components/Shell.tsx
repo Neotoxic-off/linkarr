@@ -30,6 +30,8 @@ const navItems: readonly NavItem[] = [
   { href: "/requests/", label: "Requests", icon: "list", shown: (u) => u.admin || u.rights.request, tab: true },
   { href: "/catalog/", label: "Catalog", icon: "layers", shown: (u) => u.admin, tab: false },
   { href: "/users/", label: "Users", icon: "users", shown: (u) => u.admin, tab: true },
+  { href: "/roles/", label: "Roles", icon: "key", shown: (u) => u.admin, tab: false },
+  { href: "/groups/", label: "Groups", icon: "folder", shown: (u) => u.admin, tab: false },
   { href: "/settings/", label: "Settings", icon: "settings", shown: (u) => u.admin, tab: false },
 ];
 
@@ -123,7 +125,7 @@ function UserMenu(): ReactNode {
       className={`grid size-11 cursor-pointer place-items-center overflow-hidden rounded-full font-display text-[22px] leading-none uppercase transition ${user.avatar ? "hover:opacity-85" : "bg-white text-canvas hover:bg-ink"}`}>
       <div className="mb-1 border-b border-hair-2 px-3 pt-2 pb-3">
         <p className="truncate text-body font-semibold">{name}</p>
-        <p className="text-meta text-ink-3">{user.admin ? "Administrator" : "Member"}</p>
+        <p className="text-meta text-ink-3">{user.role}</p>
       </div>
       <MenuItem icon="user" href="/account/">Account</MenuItem>
       {navItems.filter((item) => !item.tab && item.shown(user)).map((item) => (

@@ -12,24 +12,39 @@ public static class RightsMapping
     public const string ModularrUser = "User";
 
     // An admin has everything, so an account in both apps.
-    public static bool HasVisularrAccount(Account account) => account.IsAdmin || account.Watch;
+    // What a parental limit blocks when the title has no rating at all (Jellyfin's UnratedItem names).
+    public static readonly string[] UnratedKinds = ["Movie", "Trailer", "Series", "Music", "Book", "LiveTvChannel", "LiveTvProgram", "ChannelContent"];
 
-    public static bool HasModularrAccount(Account account) => account.IsAdmin || account.ModularrAccess;
+    public static bool HasVisularrAccount(Account account) => account.IsAdmin || account.Rights.Watch;
 
-    public static string ModularrRole(Account account) => account.IsAdmin || account.ManageDownloads ? ModularrAdmin : ModularrUser;
+    public static bool HasModularrAccount(Account account) => account.IsAdmin || account.Rights.ModularrAccess;
 
-    // Only the fields linkarr owns change; the rest of Jellyfin's policy is kept as it is. A disabled account is never a
-    // Jellyfin administrator (Jellyfin refuses to disable one).
+    public static string ModularrRole(Account account) => account.IsAdmin || account.Rights.ManageDownloads ? ModularrAdmin : ModularrUser;
+
+    // Only the fields linkarr owns change (from the effective rights: role and groups); the rest of Jellyfin's policy is kept as
+    // it is. A disabled account is never a Jellyfin administrator (Jellyfin refuses to disable one).
     public static JsonObject ApplyPolicy(JsonObject policy, Account account)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(account);
-        bool allLibraries = account.IsAdmin || account.AllLibraries;
+        Rights rights = account.Rights;
+        bool allLibraries = account.IsAdmin || rights.AllLibraries;
         policy["IsAdministrator"] = account.IsAdmin && !account.Disabled;
         policy["IsDisabled"] = account.Disabled;
-        policy["EnableMediaPlayback"] = account.IsAdmin || account.Watch;
+        policy["EnableMediaPlayback"] = account.IsAdmin || rights.Watch;
         policy["EnableAllFolders"] = allLibraries;
-        policy["EnabledFolders"] = new JsonArray([.. (allLibraries ? [] : account.Libraries).Select(l => JsonValue.Create(l))]);
+        policy["EnabledFolders"] = new JsonArray([.. (allLibraries ? [] : rights.Libraries ?? []).Select(l => JsonValue.Create(l))]);
+        policy["MaxParentalRating"] = rights.MaxParentalRating;
+        policy["MaxParentalSubRating"] = null;
+        policy["BlockUnratedItems"] = new JsonArray([.. (rights.MaxParentalRating is not null && rights.BlockUnrated ? UnratedKinds : []).Select(k => JsonValue.Create(k))]);
+        policy["EnableContentDownloading"] = rights.CanDownload;
+        policy["EnableSyncTranscoding"] = rights.CanDownload;
+        policy["EnableRemoteAccess"] = rights.RemoteAccess;
+        policy["MaxActiveSessions"] = rights.MaxActiveSessions;
+        policy["EnableVideoPlaybackTranscoding"] = rights.Transcoding;
+        policy["EnableAudioPlaybackTranscoding"] = rights.Transcoding;
+        policy["EnablePlaybackRemuxing"] = rights.Transcoding;
+        policy["RemoteClientBitrateLimit"] = rights.BitrateLimit;
         return policy;
     }
 }

@@ -1,7 +1,9 @@
 namespace Linkarr.Api.Data;
 
-// What a linkarr user may do; linkarr is the source of truth and provisions it to visularr and modularr.
-// Libraries are visularr library ids, used only when AllLibraries is off.
+// What a linkarr user may do: a role's permission set, or a user's effective rights (the role's, with the libraries of its groups).
+// linkarr is the source of truth and provisions it to visularr and modularr. Libraries are visularr library ids, used only when
+// AllLibraries is off. Defaults are Jellyfin's own for a new user. RequestsPerDay null keeps the global limit; MaxParentalRating is
+// a Jellyfin rating score (PG is 10), null for none; MaxActiveSessions and BitrateLimit (bits/s) 0 for no limit.
 public sealed record Rights(
     bool Admin = false,
     bool Watch = true,
@@ -9,7 +11,84 @@ public sealed record Rights(
     IReadOnlyList<string>? Libraries = null,
     bool Request = true,
     bool ManageDownloads = false,
-    bool ModularrAccess = false);
+    bool ModularrAccess = false,
+    int? RequestsPerDay = null,
+    int? MaxParentalRating = null,
+    bool BlockUnrated = false,
+    bool CanDownload = true,
+    bool RemoteAccess = true,
+    int MaxActiveSessions = 0,
+    bool Transcoding = true,
+    int BitrateLimit = 0);
+
+// A named permission set; every account has exactly one. Built-in roles (BuiltIn set) cannot be deleted, and Admin not changed.
+public sealed class Role
+{
+    public const int AdminId = 1;
+    public const int MemberId = 2;
+    public const int KidId = 3;
+    public const int GuestId = 4;
+
+    public int Id { get; set; }
+    public required string Name { get; set; }
+    public string? BuiltIn { get; set; }
+
+    public bool Admin { get; set; }
+    public bool Watch { get; set; }
+    public bool AllLibraries { get; set; } = true;
+    public List<string> Libraries { get; set; } = [];
+    public bool Request { get; set; }
+    public bool ManageDownloads { get; set; }
+    public bool ModularrAccess { get; set; }
+    public int? RequestsPerDay { get; set; }
+    public int? MaxParentalRating { get; set; }
+    public bool BlockUnrated { get; set; }
+    public bool CanDownload { get; set; } = true;
+    public bool RemoteAccess { get; set; } = true;
+    public int MaxActiveSessions { get; set; }
+    public bool Transcoding { get; set; } = true;
+    public int BitrateLimit { get; set; }
+
+    public Rights Rights
+    {
+        get => new(Admin, Watch, AllLibraries, [.. Libraries], Request, ManageDownloads, ModularrAccess, RequestsPerDay, MaxParentalRating,
+            BlockUnrated, CanDownload, RemoteAccess, MaxActiveSessions, Transcoding, BitrateLimit);
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            Admin = value.Admin;
+            Watch = value.Watch;
+            AllLibraries = value.AllLibraries;
+            Libraries = CleanLibraries(value.Libraries);
+            Request = value.Request;
+            ManageDownloads = value.ManageDownloads;
+            ModularrAccess = value.ModularrAccess;
+            RequestsPerDay = value.RequestsPerDay;
+            MaxParentalRating = value.MaxParentalRating;
+            BlockUnrated = value.BlockUnrated;
+            CanDownload = value.CanDownload;
+            RemoteAccess = value.RemoteAccess;
+            MaxActiveSessions = value.MaxActiveSessions;
+            Transcoding = value.Transcoding;
+            BitrateLimit = value.BitrateLimit;
+        }
+    }
+
+    public static List<string> CleanLibraries(IEnumerable<string>? libraries) =>
+        [.. (libraries ?? []).Where(l => !string.IsNullOrWhiteSpace(l)).Distinct(StringComparer.Ordinal)];
+}
+
+// A named set of users (family, friends, kids): it grants libraries and nothing else. DefaultRoleId is the role a new user created
+// in this group gets when none is picked; it is never an admin role and never changes an existing member's role.
+public sealed class Group
+{
+    public int Id { get; set; }
+    public required string Name { get; set; }
+    public bool AllLibraries { get; set; }
+    public List<string> Libraries { get; set; } = [];
+    public int? DefaultRoleId { get; set; }
+    public List<Account> Members { get; set; } = [];
+}
 
 public enum SyncStatus
 {
@@ -29,13 +108,12 @@ public sealed class Account
     public DateTime? AvatarUpdated { get; set; }
     public DateTime? LastSignIn { get; set; }
 
-    public bool IsAdmin { get; set; }
-    public bool Watch { get; set; }
-    public bool AllLibraries { get; set; } = true;
-    public List<string> Libraries { get; set; } = [];
-    public bool Request { get; set; }
-    public bool ManageDownloads { get; set; }
-    public bool ModularrAccess { get; set; }
+    // Both always loaded with the account (auto-included): every right is read through them.
+    public int RoleId { get; set; }
+    public Role Role { get; set; } = null!;
+    public List<Group> Groups { get; set; } = [];
+
+    public bool IsAdmin => Role.Admin;
 
     // The id modularr links its user to: stable whatever happens to the username.
     public string ExternalId { get; set; } = Guid.NewGuid().ToString("N");
@@ -48,19 +126,15 @@ public sealed class Account
     // An app could not receive the password linkarr last knew (down, or the account was created without one): it must be entered again.
     public bool PasswordPending { get; set; }
 
+    // The effective rights: the role's, with every library of the role or any of the groups (all when one of them says all).
+    // Groups only ever add libraries: nothing else of the role can be raised through a group.
     public Rights Rights
     {
-        get => new(IsAdmin, Watch, AllLibraries, [.. Libraries], Request, ManageDownloads, ModularrAccess);
-        set
+        get
         {
-            ArgumentNullException.ThrowIfNull(value);
-            IsAdmin = value.Admin;
-            Watch = value.Watch;
-            AllLibraries = value.AllLibraries;
-            Libraries = [.. (value.Libraries ?? []).Where(l => !string.IsNullOrWhiteSpace(l)).Distinct(StringComparer.Ordinal)];
-            Request = value.Request;
-            ManageDownloads = value.ManageDownloads;
-            ModularrAccess = value.ModularrAccess;
+            Rights role = Role.Rights;
+            bool all = role.AllLibraries || Groups.Any(g => g.AllLibraries);
+            return role with { AllLibraries = all, Libraries = all ? [] : Role.CleanLibraries(role.Libraries!.Concat(Groups.SelectMany(g => g.Libraries))) };
         }
     }
 }
